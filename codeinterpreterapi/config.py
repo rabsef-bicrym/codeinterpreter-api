@@ -14,7 +14,13 @@ class CodeInterpreterAPISettings(BaseSettings):
     VERBOSE: bool = False
 
     CODEBOX_API_KEY: Optional[str] = None
-    OPENAI_API_KEY: Optional[str] = None
+    
+    IMPLEMENTATION: Optional[str] = None
+    AI_API_MODEL: Optional[str] = None 
+    AI_API_KEY: Optional[str] = None
+    AZURE_API_BASE: Optional[str] = None
+    AZURE_API_VERSION: Optional[str] = None
+
 
 
 settings = CodeInterpreterAPISettings()

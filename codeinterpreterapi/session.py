@@ -4,7 +4,7 @@ from typing import Optional
 from codeboxapi import CodeBox  # type: ignore
 from codeboxapi.schema import CodeBoxOutput  # type: ignore
 from langchain.tools import StructuredTool, BaseTool
-from langchain.chat_models import ChatOpenAI
+from langchain.chat_models import ChatOpenAI, AzureChatOpenAI
 from langchain.chat_models.base import BaseChatModel
 from langchain.prompts.chat import MessagesPlaceholder
 from langchain.agents import AgentExecutor, BaseSingleActionAgent
@@ -22,15 +22,18 @@ from codeinterpreterapi.chains.remove_download_link import remove_download_link
 class CodeInterpreterSession:
     def __init__(
         self,
-        model=None,
-        openai_api_key=settings.OPENAI_API_KEY,
+        implementation=settings.IMPLEMENTATION,
+        ai_api_model=settings.AI_API_MODEL,
+        ai_api_key=settings.AI_API_KEY,
+        azure_api_base=settings.AZURE_API_BASE,
+        azure_api_version=settings.AZURE_API_VERSION,
         verbose=settings.VERBOSE,
         tools: list[BaseTool] = None
     ) -> None:
         self.codebox = CodeBox()
         self.verbose = verbose
         self.tools: list[BaseTool] = self._tools(tools)
-        self.llm: BaseChatModel = self._llm(model, openai_api_key)
+        self.llm: BaseChatModel = self._llm(implementation, ai_api_model, ai_api_key, azure_api_base, azure_api_version)
         self.agent_executor: AgentExecutor = self._agent_executor()
         self.input_files: list[File] = []
         self.output_files: list[File] = []
@@ -54,22 +57,49 @@ class CodeInterpreterSession:
             ),
         ]
 
-    def _llm(self, model: Optional[str] = None, openai_api_key: Optional[str] = None) -> BaseChatModel:
-        if model is None:
-            model = "gpt-4"
+    def _llm(self, implementation: Optional[str] = None, ai_api_model: Optional[str] = None, ai_api_key: Optional[str] = None, azure_api_base: Optional[str] = None, azure_api_version: Optional[str] = None) -> BaseChatModel:
+        if ai_api_model is None:
+           ai_api_model = "gpt-4"
 
-        if openai_api_key is None:
+        if implementation is None:
+           implementation = "openai"
+
+        if ai_api_key is None:
             raise ValueError(
-                "OpenAI API key missing. Set OPENAI_API_KEY env variable or pass `openai_api_key` to session."
+                "API key missing. Set AI_API_KEY env variable or pass `ai_api_key` to session."
             )
 
-        return ChatOpenAI(
-            temperature=0.03,
-            model=model,
-            openai_api_key=openai_api_key,
-            max_retries=3,
-            request_timeout=60 * 3,
-        )  # type: ignore
+        if implementation == 'azure':
+            if azure_api_base is None:
+                raise ValueError(
+                    "Azure base URL missing. Set AZURE_API_BASE env variable or pass `azure_api_base` to session."
+                )
+            
+            if azure_api_version is None:
+                raise ValueError(
+                    "Azure version is missing. Set AZURE_API_VERSION env variable or pass `azure_api_base` to session."
+                )
+            
+
+            return AzureChatOpenAI(
+                temperature=0.03,
+                max_retries=3,
+                request_timeout=60 * 3,
+                openai_api_base=azure_api_base,
+                openai_api_version=azure_api_version,
+                deployment_name=ai_api_model,
+                openai_api_key=ai_api_key,
+            )
+
+        if implementation == 'openai':
+
+            return ChatOpenAI(
+                temperature=0.03,
+                model=ai_api_model,
+                openai_api_key=ai_api_key,
+                max_retries=3,
+                request_timeout=60 * 3,
+            )  # type: ignore
 
     def _agent(self) -> BaseSingleActionAgent:
         return OpenAIFunctionsAgent.from_llm_and_tools(
@@ -174,7 +204,9 @@ class CodeInterpreterSession:
         user_request = UserRequest(content=user_msg, files=files)
         try:
             await self.input_handler(user_request)
+            print(f"test")
             response = await self.agent_executor.arun(input=user_request.content)
+            print(f"{response}")
             return await self.output_handler(response)
         except Exception as e:
             if self.verbose:
