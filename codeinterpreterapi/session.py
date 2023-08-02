@@ -121,11 +121,10 @@ class CodeInterpreterSession:
         if implementation == "openai":
             return ChatOpenAI(
                 temperature=0.03,
-                # model=ai_model,
+                model=ai_model,
                 openai_api_key=ai_api_key,
                 max_retries=3,
                 request_timeout=60 * 3,
-                # model_name=ai_model,
             )  # type: ignore
 
     def _agent(self) -> BaseSingleActionAgent:
