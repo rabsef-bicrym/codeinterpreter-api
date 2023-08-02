@@ -1,3 +1,4 @@
+import logging
 import uuid, base64, re
 from io import BytesIO
 from typing import Optional
@@ -10,7 +11,12 @@ from langchain.prompts.chat import MessagesPlaceholder
 from langchain.agents import AgentExecutor, BaseSingleActionAgent
 from langchain.memory import ConversationBufferMemory
 
-from codeinterpreterapi.schema import CodeInterpreterResponse, CodeInput, File, UserRequest
+from codeinterpreterapi.schema import (
+    CodeInterpreterResponse,
+    CodeInput,
+    File,
+    UserRequest,
+)
 from codeinterpreterapi.config import settings
 from codeinterpreterapi.chains.functions_agent import OpenAIFunctionsAgent
 from codeinterpreterapi.prompts import code_interpreter_system_message
@@ -23,17 +29,25 @@ class CodeInterpreterSession:
     def __init__(
         self,
         implementation=settings.IMPLEMENTATION,
-        ai_api_model=settings.AI_API_MODEL,
+        ai_model=settings.AI_MODEL,
         ai_api_key=settings.AI_API_KEY,
         azure_api_base=settings.AZURE_API_BASE,
         azure_api_version=settings.AZURE_API_VERSION,
+        azure_deployment_name=settings.AZURE_DEPLOYMENT_NAME,
         verbose=settings.VERBOSE,
-        tools: list[BaseTool] = None
+        tools: list[BaseTool] = None,
     ) -> None:
         self.codebox = CodeBox()
         self.verbose = verbose
         self.tools: list[BaseTool] = self._tools(tools)
-        self.llm: BaseChatModel = self._llm(implementation, ai_api_model, ai_api_key, azure_api_base, azure_api_version)
+        self.llm: BaseChatModel = self._llm(
+            implementation,
+            ai_model,
+            ai_api_key,
+            azure_api_base,
+            azure_api_version,
+            azure_deployment_name,
+        )
         self.agent_executor: AgentExecutor = self._agent_executor()
         self.input_files: list[File] = []
         self.output_files: list[File] = []
@@ -57,48 +71,61 @@ class CodeInterpreterSession:
             ),
         ]
 
-    def _llm(self, implementation: Optional[str] = None, ai_api_model: Optional[str] = None, ai_api_key: Optional[str] = None, azure_api_base: Optional[str] = None, azure_api_version: Optional[str] = None) -> BaseChatModel:
-        if ai_api_model is None:
-           ai_api_model = "gpt-4"
+    def _llm(
+        self,
+        implementation: Optional[str] = None,
+        ai_model: Optional[str] = None,
+        ai_api_key: Optional[str] = None,
+        azure_api_base: Optional[str] = None,
+        azure_api_version: Optional[str] = None,
+        azure_deployment_name: Optional[str] = None,
+    ) -> BaseChatModel:
+        if ai_model is None:
+            ai_model = "gpt-4"
 
         if implementation is None:
-           implementation = "openai"
+            implementation = "openai"
 
         if ai_api_key is None:
             raise ValueError(
                 "API key missing. Set AI_API_KEY env variable or pass `ai_api_key` to session."
             )
 
-        if implementation == 'azure':
+        if implementation == "azure":
             if azure_api_base is None:
                 raise ValueError(
                     "Azure base URL missing. Set AZURE_API_BASE env variable or pass `azure_api_base` to session."
                 )
-            
+
             if azure_api_version is None:
                 raise ValueError(
                     "Azure version is missing. Set AZURE_API_VERSION env variable or pass `azure_api_base` to session."
                 )
-            
+
+            if azure_deployment_name is None:
+                raise ValueError(
+                    "Azure deployment name is missing. Set AZURE_DEPLOYMENT_NAME env variable or pass `azure_deployment_name` to session."
+                )
 
             return AzureChatOpenAI(
-                temperature=0.03,
+                model=ai_model,
                 max_retries=3,
-                request_timeout=60 * 3,
+                temperature=0.03,
+                # request_timeout=60 * 3,
+                openai_api_key=ai_api_key,
                 openai_api_base=azure_api_base,
                 openai_api_version=azure_api_version,
-                deployment_name=ai_api_model,
-                openai_api_key=ai_api_key,
+                deployment_name=azure_deployment_name,
             )
 
-        if implementation == 'openai':
-
+        if implementation == "openai":
             return ChatOpenAI(
                 temperature=0.03,
-                model=ai_api_model,
+                # model=ai_model,
                 openai_api_key=ai_api_key,
                 max_retries=3,
                 request_timeout=60 * 3,
+                # model_name=ai_model,
             )  # type: ignore
 
     def _agent(self) -> BaseSingleActionAgent:
@@ -148,8 +175,9 @@ class CodeInterpreterSession:
                 ):
                     await self.codebox.ainstall(package.group(1))
                     return f"{package.group(1)} was missing but got installed now. Please try again."
-            else: pass
-                # TODO: preanalyze error to optimize next code generation
+            else:
+                pass
+            # TODO: preanalyze error to optimize next code generation
             if self.verbose:
                 print("Error:", output.content)
 
@@ -201,12 +229,15 @@ class CodeInterpreterSession:
         detailed_error: bool = False,
     ) -> CodeInterpreterResponse:
         """Generate a Code Interpreter response based on the user's input."""
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.debug(f"User Message: {user_msg}")
+        logging.debug(f"Files: {files}")
         user_request = UserRequest(content=user_msg, files=files)
         try:
             await self.input_handler(user_request)
-            print(f"test")
+            print(f"in generate_response: {user_request.content}")
             response = await self.agent_executor.arun(input=user_request.content)
-            print(f"{response}")
+            print(response)
             return await self.output_handler(response)
         except Exception as e:
             if self.verbose:
@@ -219,7 +250,7 @@ class CodeInterpreterSession:
                 )
             else:
                 return CodeInterpreterResponse(
-                    content="Sorry, something went while generating your response."
+                    content="Sorry, something went wrong while generating your response."
                     "Please try again or restart the session."
                 )
 

@@ -16,11 +16,11 @@ class CodeInterpreterAPISettings(BaseSettings):
     CODEBOX_API_KEY: Optional[str] = None
     
     IMPLEMENTATION: Optional[str] = None
-    AI_API_MODEL: Optional[str] = None 
+    AI_MODEL: Optional[str] = None 
     AI_API_KEY: Optional[str] = None
     AZURE_API_BASE: Optional[str] = None
     AZURE_API_VERSION: Optional[str] = None
-
+    AZURE_DEPLOYMENT_NAME: Optional[str] = None
 
 
 settings = CodeInterpreterAPISettings()
